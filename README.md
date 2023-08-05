@@ -1,5 +1,5 @@
 # Apache-beam-with-flink
-This is  for POC of use Apache beam with Flink Runner  and Python SDK 
+This is for POC to use Apache beam with Flink Runner and Python SDK 
 
 # docker build -t custom-flink .
 
