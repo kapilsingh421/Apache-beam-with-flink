@@ -1,0 +1,173 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: flink-jobmanager
+  namespace: flink
+spec:
+  type: ClusterIP
+  ports:
+  - name: rpc
+    port: 6123
+  - name: blob-server
+    port: 6124
+  - name: webui
+    port: 8081
+  selector:
+    app: flink
+    component: jobmanager
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: beam-worker-pool
+  namespace: flink
+spec:
+  selector:
+    app: flink
+    component: taskmanager
+  ports:
+    - protocol: TCP
+      port: 50000
+      targetPort: 50000
+      name: pool
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flink-jobmanager
+  namespace: flink
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: flink
+      component: jobmanager
+  template:
+    metadata:
+      labels:
+        app: flink
+        component: jobmanager
+    spec:
+      containers:
+      - name: jobmanager
+        image: custom-flink:latest
+        imagePullPolicy: IfNotPresent
+        args: ["jobmanager"]
+        ports:
+        - containerPort: 6123
+          name: rpc
+        - containerPort: 6124
+          name: blob-server
+        - containerPort: 8081
+          name: webui
+        livenessProbe:
+          tcpSocket:
+            port: 6123
+          initialDelaySeconds: 30
+          periodSeconds: 60
+        volumeMounts:
+        - name: flink-config-volume
+          mountPath: /opt/flink/conf
+        - name: flink-staging
+          mountPath: /tmp/beam-artifact-staging
+        securityContext:
+          runAsUser: 9999
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "2"
+          limits:
+            memory: "2Gi"
+            cpu: "2"
+      volumes:
+      - name: flink-config-volume
+        configMap:
+          name: flink-config
+          items:
+          - key: flink-conf.yaml
+            path: flink-conf.yaml
+          - key: log4j-console.properties
+            path: log4j-console.properties
+      - name: flink-staging
+        persistentVolumeClaim:
+          claimName: staging-artifacts-claim
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flink-taskmanager
+  namespace: flink
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: flink
+      component: taskmanager
+  template:
+    metadata:
+      labels:
+        app: flink
+        component: taskmanager
+    spec:
+      containers:
+      - name: taskmanager
+        image: custom-flink:latest
+        imagePullPolicy: IfNotPresent
+        args: ["taskmanager"]
+        ports:
+        - containerPort: 6122
+          name: rpc
+        - containerPort: 6125
+          name: query-state
+        livenessProbe:
+          tcpSocket:
+            port: 6122
+          initialDelaySeconds: 30
+          periodSeconds: 60
+        volumeMounts:
+        - name: flink-config-volume
+          mountPath: /opt/flink/conf/
+        - name: flink-staging
+          mountPath: /tmp/beam-artifact-staging
+        securityContext:
+          runAsUser: 9999
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "2"
+          limits:
+            memory: "2Gi"
+            cpu: "2"
+      - name: beam-worker-pool
+        image: apache/beam_python3.7_sdk:2.48.0
+        args: ["--worker_pool"]
+        ports:
+        - containerPort: 50000
+          name: pool
+        livenessProbe:
+          tcpSocket:
+            port: 50000
+          initialDelaySeconds: 30
+          periodSeconds: 60
+        volumeMounts:
+        - name: flink-staging
+          mountPath: /tmp/beam-artifact-staging
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "2"
+          limits:
+            memory: "2Gi"
+            cpu: "2"
+      volumes:
+      - name: flink-config-volume
+        configMap:
+          name: flink-config
+          items:
+          - key: flink-conf.yaml
+            path: flink-conf.yaml
+          - key: log4j-console.properties
+            path: log4j-console.properties
+      - name: flink-staging
+        persistentVolumeClaim:
+          claimName: staging-artifacts-claim
